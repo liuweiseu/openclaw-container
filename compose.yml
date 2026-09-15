@@ -1,10 +1,15 @@
+# ⚠️ 目前这份 compose.yml 仅供参考/构建镜像用（`podman compose build`），
+# 不能用它 `up` 这个容器：容器必须用 `podman run --systemd=always ...` 启动
+# （PID 1 是系统级 systemd，不加 --systemd=always 的话 /sys/fs/cgroup 是只读的，
+# 容器起不来），标准 compose schema 没有对应 --systemd 的字段。
+# 实际启动步骤见 README.md。
 version: '3.8'
 
 services:
   openclaw-vnc:
     build: .
     image: openclaw-vnc:ubuntu26.04
-    container_name: openclaw-vnc
+    container_name: openclaw
     ports:
       - "5901:5901"
       - "18789:18789"
@@ -17,7 +22,3 @@ services:
       - ./openclaw_systemd_user:/home/node/.config/systemd/user
     # 保持容器后台运行的策略
     restart: unless-stopped
-    # 容器必须以系统级 systemd 作为 PID 1 启动（见 Dockerfile 里的 CMD），
-    # 需要 podman 的 --systemd=always；标准 compose schema 没有对应字段，
-    # 目前用 `podman run --systemd=always ...`（见对话记录）直接起，而不是这份
-    # compose.yml——留着它主要是文档 + `podman compose build` 用。
