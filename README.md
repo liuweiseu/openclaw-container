@@ -80,11 +80,22 @@ openclaw config set gateway.bind lan
 openclaw gateway install
 ```
 
-想更方便地进容器，可以在**宿主机**的 `~/.bash_aliases` 里加一条（这是宿主机本地的便利设置，不属于本仓库内容）：
+想更方便地进容器，跑一下仓库自带的宿主机便利配置安装脚本（见下面"宿主机便利配置"一节），装好之后直接：
 
 ```bash
-alias openclaw-shell='podman exec -it -u node -e HOME=/home/node -e XDG_RUNTIME_DIR=/run/user/1001 openclaw bash'
+openclaw-shell
 ```
+
+## 宿主机便利配置
+
+`host-config/` 目录放的是跟容器本身无关、纯粹方便你在**宿主机**上操作的东西（目前是 `openclaw-shell` 这个 alias）。跑一次安装脚本就行，可重复运行，已经装过会自动跳过：
+
+```bash
+./host-config/install.sh
+source ~/.bashrc   # 或者重新开一个终端
+```
+
+它做的事很简单：往 `~/.bash_aliases` 里追加一行 `source "<repo路径>/host-config/bash_aliases"`，不会覆盖你已有的内容。以后想加新的宿主机别名/函数，直接编辑 `host-config/bash_aliases` 就行，不用重新跑安装脚本。
 
 ## 常用操作
 

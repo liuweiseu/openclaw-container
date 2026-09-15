@@ -1,0 +1,6 @@
+# openclaw-container 宿主机便利别名
+# 由 host-config/install.sh 通过 source 引入，不要直接复制粘贴到别处，
+# 改这里、重开个终端就对所有 host-config/install.sh 装过的机器生效。
+
+# 以 node 身份进 openclaw 容器（交互式 shell）
+alias openclaw-shell='podman exec -it -u node -e HOME=/home/node -e XDG_RUNTIME_DIR=/run/user/1001 openclaw bash'
