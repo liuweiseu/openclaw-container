@@ -1,0 +1,10 @@
+# 运行时数据/密钥卷挂载，不进版本库
+/data/
+/openclaw_data/
+/openclaw_systemd_user/
+
+# 本地编辑器/工具产生的临时文件
+*.swp
+*.swo
+*~
+.claude/

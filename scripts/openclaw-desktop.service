@@ -1,0 +1,18 @@
+[Unit]
+Description=OpenClaw VNC desktop (xfce4)
+After=network.target systemd-logind.service user@1001.service
+
+[Service]
+Type=simple
+User=node
+Group=node
+Environment=HOME=/home/node
+Environment=USER=node
+Environment=DISPLAY=:1
+Environment=XDG_RUNTIME_DIR=/run/user/1001
+ExecStart=/usr/local/bin/runvnc
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  openclaw-vnc:
+    build: .
+    image: openclaw-vnc:ubuntu26.04
+    container_name: openclaw-vnc
+    ports:
+      - "5901:5901"
+      - "18789:18789"
+    volumes:
+      - ./data:/mnt
+      - ./openclaw_data:/home/node/.openclaw
+      # 持久化 openclaw gateway 的 systemd user unit（openclaw gateway install
+      # 写在 ~/.config 下，不在 ~/.openclaw 里，不额外挂载的话每次重建容器都要
+      # 重新 openclaw gateway install）
+      - ./openclaw_systemd_user:/home/node/.config/systemd/user
+    # 保持容器后台运行的策略
+    restart: unless-stopped
+    # 容器必须以系统级 systemd 作为 PID 1 启动（见 Dockerfile 里的 CMD），
+    # 需要 podman 的 --systemd=always；标准 compose schema 没有对应字段，
+    # 目前用 `podman run --systemd=always ...`（见对话记录）直接起，而不是这份
+    # compose.yml——留着它主要是文档 + `podman compose build` 用。

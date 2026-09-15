@@ -1,0 +1,6 @@
+#!/bin/bash
+# VNC 会话启动脚本：拉起 xfce4 桌面环境
+unset SESSION_MANAGER
+unset DBUS_SESSION_BUS_ADDRESS
+
+exec dbus-launch --exit-with-session startxfce4
