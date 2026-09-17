@@ -1,39 +1,46 @@
 # openclaw-vnc
 
-一个带 VNC 桌面（xfce4 + Firefox）、装好 [openclaw](https://github.com/openclaw/openclaw)（CLI/Gateway）、GitHub CLI（`gh`）和 Claude Code CLI（`claude`）的 Ubuntu 26.04 容器镜像。容器 PID 1 是真正的系统级 `systemd`，`openclaw gateway install/start/stop/restart` 走标准 systemd 服务管理。
+A Ubuntu 26.04 container image with a VNC desktop (xfce4 + Firefox), [openclaw](https://github.com/openclaw/openclaw) (CLI/Gateway) preinstalled, the GitHub CLI (`gh`), and the Claude Code CLI (`claude`). Container PID 1 is a real system-level `systemd`, so `openclaw gateway install/start/stop/restart` go through standard systemd service management.
 
-## 前置要求
+*(A Chinese version of this document is available at [README_CN.md](README_CN.md).)*
 
-- 一台 Linux 主机（本仓库基于 Ubuntu 开发验证，其它发行版原理相同）
-- [Podman](https://podman.io/)，rootless 模式，建议 5.x（本仓库在 podman 5.7 上开发验证）
-- 当前用户已经分配了 subuid/subgid 段位（现代发行版 `useradd` 时通常自动配置好；可用下面的命令确认）：
+## Prerequisites
+
+- A Linux host (this repo was developed and verified on Ubuntu; other distributions work the same way in principle)
+- [Podman](https://podman.io/), rootless mode, 5.x recommended (developed and verified on podman 5.7)
+- The current user already has a subuid/subgid range assigned (modern distros usually set this up automatically when the user is created via `useradd`; check with the command below):
 
   ```bash
   grep "^$(whoami):" /etc/subuid /etc/subgid
   ```
 
-  如果没有输出，需要先用 `sudo usermod --add-subuids 231072-296607 --add-subgids 231072-296607 $(whoami)` 之类的命令分配一段，然后重新登录。
+  If there's no output, assign a range first with something like `sudo usermod --add-subuids 231072-296607 --add-subgids 231072-296607 $(whoami)`, then log back in.
 
-## 快速开始
+## Quick start
 
 ```bash
-git clone <this-repo-url> openclaw-container
+git clone https://github.com/liuweiseu/openclaw-container.git openclaw-container
 cd openclaw-container
 
-# 1. 建三个运行时数据目录（仓库里没有带，见下面"目录说明"）
+# 1. Create the three runtime data directories (not shipped in the repo, see
+#    "Directory overview" below)
 mkdir -p data openclaw_data openclaw_systemd_user
 
-# 2. 修正属主：rootless podman 里容器内 node 用户(uid 1001)对应宿主机上的一个
-#    subuid，不是宿主机当前用户，普通 chown 做不到，要用 podman unshare
+# 2. Fix ownership: under rootless podman, the container's node user (uid 1001)
+#    maps to a subuid on the host, not your own host user, so a plain chown
+#    can't do it — use podman unshare instead
 podman unshare chown -R 1001:1001 data openclaw_data openclaw_systemd_user
 
-# openclaw 自己有个安全检查，要求它的 systemd 服务目录不能是 group/other 可写
+# openclaw itself has a safety check requiring its systemd service directory
+# to not be group/other writable
 chmod 700 openclaw_systemd_user
 
-# 3. 构建镜像（第一次会下载 Node.js / Firefox / npm 依赖，比较久）
+# 3. Build the image (the first build downloads Node.js / Firefox / npm
+#    dependencies, so it takes a while)
 podman build -t openclaw-vnc:ubuntu26.04 .
 
-# 4. 启动容器 —— 必须带 --systemd=always，见下面"为什么必须 --systemd=always"
+# 4. Start the container — --systemd=always is required, see "Why
+#    --systemd=always is required" below
 podman run -d \
   --name openclaw \
   --systemd=always \
@@ -46,98 +53,101 @@ podman run -d \
   localhost/openclaw-vnc:ubuntu26.04
 ```
 
-启动后确认一下状态：
+Once it's up, verify the state:
 
 ```bash
-podman ps -a --filter name=openclaw          # 应该是 Up
-podman exec openclaw systemctl --failed      # 应该是 0 loaded units
+podman ps -a --filter name=openclaw          # should be Up
+podman exec openclaw systemctl --failed      # should be 0 loaded units
 ```
 
-## 连接桌面
+## Connecting to the desktop
 
-用任意 VNC 客户端连 `<宿主机IP>:5901`，密码默认 `openclaw`（可以在 `podman run` 里加 `-e VNC_PASSWORD=你的密码` 覆盖，容器每次启动都会按这个环境变量重新生成密码文件）。
+Connect with any VNC client to `<host-ip>:5901`; the default password is `openclaw` (override it with `-e VNC_PASSWORD=yourpassword` on `podman run` — the container regenerates the password file from this env var on every start).
 
-桌面是 xfce4（Greybird 主题 + elementary-xfce 图标），默认浏览器是 Firefox，装了中日韩字体，中文网页不会乱码。
+The desktop is xfce4 (Greybird theme + elementary-xfce icons), Firefox is the default browser, and CJK fonts are installed so Chinese pages won't show mojibake.
 
-## 首次配置 openclaw
+## First-time openclaw configuration
 
-镜像里只装好了 openclaw **软件本身**，不包含任何 agent / Discord 账号 / 网关鉴权之类的**配置**——那些东西本来就不该打进镜像（涉及 token 等密钥），是运行时状态，存在 `openclaw_data/` 和 `openclaw_systemd_user/` 这两个卷里。全新机器第一次跑起来，需要自己配置一遍：
+The image only ships the openclaw **software itself** — it does not contain any agent / Discord account / gateway auth **configuration**. That's intentional: those things (tokens and other secrets) shouldn't be baked into the image; they're runtime state, stored in the two volumes `openclaw_data/` and `openclaw_systemd_user/`. On a brand-new machine, you need to configure it once:
 
 ```bash
-# 以 node 身份进容器（容器默认 exec 用户是 root，因为 PID 1 必须是 root 的 systemd）
+# Enter the container as node (the container's default exec user is root,
+# because PID 1 has to be root's systemd)
 podman exec -it -u node -e HOME=/home/node -e XDG_RUNTIME_DIR=/run/user/1001 openclaw bash
 
-# 进去之后：
-openclaw configure          # 交互式配置模型/网关/鉴权
-openclaw channels add       # 按提示添加 Discord/Telegram 等账号
-openclaw agents add <id>    # 需要的话创建额外 agent
-openclaw agents bind --agent <id> --bind discord:<accountId>   # 绑定路由
+# Once inside:
+openclaw configure          # interactive model/gateway/auth setup
+openclaw channels add       # add Discord/Telegram/etc. accounts, following the prompts
+openclaw agents add <id>    # create additional agents if needed
+openclaw agents bind --agent <id> --bind discord:<accountId>   # bind routing
 
-# 网关默认只监听 loopback，容器外连不到，需要改成 lan：
+# The gateway only listens on loopback by default, unreachable from outside
+# the container — change it to lan:
 openclaw config set gateway.bind lan
 
-# 把网关装成 systemd 服务（持久化到 openclaw_systemd_user 卷里，以后重建容器不用重装）
+# Install the gateway as a systemd service (persisted in the
+# openclaw_systemd_user volume, so it survives future container rebuilds)
 openclaw gateway install
 ```
 
-想更方便地进容器，跑一下仓库自带的宿主机便利配置安装脚本（见下面"宿主机便利配置"一节），装好之后直接：
+For a more convenient way to enter the container, run the host-side convenience installer bundled with the repo (see "Host-side convenience setup" below); once installed, just run:
 
 ```bash
 openclaw-shell
 ```
 
-## 宿主机便利配置
+## Host-side convenience setup
 
-`host-config/` 目录放的是跟容器本身无关、纯粹方便你在**宿主机**上操作的东西（目前是 `openclaw-shell` 这个 alias）。跑一次安装脚本就行，可重复运行，已经装过会自动跳过：
+`host-config/` holds things that have nothing to do with the container itself — purely convenience on the **host** (currently just the `openclaw-shell` alias). Run the installer once; it's safe to re-run and skips itself if already installed:
 
 ```bash
 ./host-config/install.sh
-source ~/.bashrc   # 或者重新开一个终端
+source ~/.bashrc   # or just open a new terminal
 ```
 
-它做的事很简单：往 `~/.bash_aliases` 里追加一行 `source "<repo路径>/host-config/bash_aliases"`，不会覆盖你已有的内容。以后想加新的宿主机别名/函数，直接编辑 `host-config/bash_aliases` 就行，不用重新跑安装脚本。
+All it does is append a line `source "<repo-path>/host-config/bash_aliases"` to `~/.bash_aliases`, without touching anything else already in there. To add new host aliases/functions later, just edit `host-config/bash_aliases` directly — no need to re-run the installer.
 
-## 常用操作
+## Common operations
 
 ```bash
-# 网关服务管理（以 node 身份，需要 XDG_RUNTIME_DIR）
+# Gateway service management (as node, needs XDG_RUNTIME_DIR)
 openclaw gateway status
 openclaw gateway start | stop --force | restart
 
-# 看网关日志
+# Gateway logs
 systemctl --user status openclaw-gateway
 journalctl --user -u openclaw-gateway -f
 
-# 看桌面/VNC 那侧的日志
+# Desktop/VNC-side logs
 systemctl status openclaw-desktop
 ```
 
-## 目录说明
+## Directory overview
 
-| 路径（宿主机） | 挂载到容器内 | 内容 | 是否随仓库提供 |
+| Host path | Mounted to | Contents | Shipped in the repo? |
 | --- | --- | --- | --- |
-| `data/` | `/mnt` | 你自己的工作区/项目文件，给 agent 用 | 否，需要自己建 |
-| `openclaw_data/` | `/home/node/.openclaw` | openclaw 的全部状态：配置、会话、密钥、agent workspace | 否，需要自己建 |
-| `openclaw_systemd_user/` | `/home/node/.config/systemd/user` | `openclaw gateway install` 生成的 systemd 服务单元 | 否，需要自己建 |
+| `data/` | `/mnt` | Your own workspace/project files, for agents to use | No, create it yourself |
+| `openclaw_data/` | `/home/node/.openclaw` | All of openclaw's state: config, sessions, secrets, agent workspaces | No, create it yourself |
+| `openclaw_systemd_user/` | `/home/node/.config/systemd/user` | The systemd unit generated by `openclaw gateway install` | No, create it yourself |
 
-这三个目录都被 `.gitignore` 排除了（要么是大文件/私有数据，要么含密钥，要么是运行时生成的状态），换机器/重新 clone 之后需要重新执行"快速开始"里第 1、2 步。
+All three directories are excluded via `.gitignore` (they're either large/private data, contain secrets, or are runtime-generated state). After moving to a new machine or a fresh clone, redo steps 1 and 2 of "Quick start".
 
-## 默认账号密码（记得改）
+## Default credentials (remember to change them)
 
-| 用途 | 用户名 | 默认密码 | 怎么改 |
+| Purpose | Username | Default password | How to change |
 | --- | --- | --- | --- |
 | VNC | - | `openclaw` | `podman run -e VNC_PASSWORD=xxx ...` |
-| 容器内 Linux 账户（在 sudo 组） | `node` | `node` | 进容器后 `passwd node` |
+| Linux account inside the container (in the sudo group) | `node` | `node` | `passwd node` after entering the container |
 
-这两个默认值是为了开箱即用设的，容器一旦暴露在公网/不受信网络上，务必先改掉。
+These defaults exist purely for out-of-the-box convenience. Change them before exposing the container to the public internet or any untrusted network.
 
-## 为什么必须 `--systemd=always`
+## Why `--systemd=always` is required
 
-容器 PID 1 直接是系统级 `/lib/systemd/systemd`，`openclaw gateway install` 会主动探测系统级 `systemctl` 确认没有别的服务管理器占用同名单元（避免两个管理器互相打架），这个探测必须要有一个真正在跑的系统级 systemd 才能通过。不加 `--systemd=always`，podman 不会把 `/sys/fs/cgroup` 挂成读写，systemd 起不来，容器基本等于起不来。
+Container PID 1 is a real system-level `/lib/systemd/systemd`. `openclaw gateway install` actively probes the system-level `systemctl` to make sure no other service manager already owns the same unit name (to avoid two managers fighting over it), and that probe only succeeds when a genuine system-level systemd is actually running. Without `--systemd=always`, podman won't mount `/sys/fs/cgroup` read-write, systemd can't start, and the container effectively won't come up at all.
 
-## 疑难排查
+## Troubleshooting
 
-- **`systemctl --failed` 里有东西 / 容器起不来**：先确认是不是忘了 `--systemd=always`。
-- **容器里报 `EPERM` / `Permission denied`，尤其是操作 `~/.openclaw` 或 `/mnt` 下的文件**：rootless podman 的 UID 映射导致宿主机目录属主和容器内 node 用户对不上，用 `podman unshare chown -R 1001:1001 <宿主机目录>` 修（不能用普通 `chown`，宿主机上的你没权限改成别的 UID）。
-- **`openclaw gateway install` 报 "unsafe-permissions"**：`~/.config/systemd/user`（即 `openclaw_systemd_user/`）权限太开放，`chmod 700 openclaw_systemd_user` 即可。
-- **重建容器后网关"消失"了**：确认 `podman run` 里带了 `-v ./openclaw_systemd_user:/home/node/.config/systemd/user`，这个服务单元文件不在 `~/.openclaw` 里，漏挂这一条就会丢。
+- **`systemctl --failed` shows entries / the container won't start**: check first whether you forgot `--systemd=always`.
+- **`EPERM` / `Permission denied` inside the container, especially touching files under `~/.openclaw` or `/mnt`**: rootless podman's UID mapping means the host directory's owner doesn't match the container's node user. Fix it with `podman unshare chown -R 1001:1001 <host-directory>` (a plain `chown` won't work — on the host you don't have permission to chown to an arbitrary UID).
+- **`openclaw gateway install` reports "unsafe-permissions"**: `~/.config/systemd/user` (i.e. `openclaw_systemd_user/`) is too permissive; `chmod 700 openclaw_systemd_user` fixes it.
+- **The gateway "disappears" after rebuilding the container**: make sure `podman run` includes `-v ./openclaw_systemd_user:/home/node/.config/systemd/user` — that service unit file doesn't live under `~/.openclaw`, and omitting this mount loses it.
